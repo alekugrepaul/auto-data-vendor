@@ -1,56 +1,85 @@
-app.get('/', (req, res) => {
-  res.send('Auto data vendor server is running');
-});
+// server.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const cors = require('cors');
 
 const app = express();
+app.use(cors());
 app.use(bodyParser.json());
 
-// === CONFIGURATION ===
-const BYTEWAVE_API_KEY = "YOUR_BYTEWAVE_API_KEY"; // replace this with your real key
-const BYTEWAVE_ENDPOINT = "https://agent.bytewavegh.com/api/data"; // from API docs
-const ADMIN_EMAIL = "your-email@gmail.com"; // your alert email
-// =====================
+// Environment variables
+const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+const BYTEWAVE_API_KEY = process.env.BYTEWAVE_API_KEY;
 
-// Paystack webhook endpoint
+// ===== Homepage Route =====
+app.get('/', (req, res) => {
+  res.send('Auto Data Vendor server is running ✅');
+});
+
+// ===== Paystack Webhook Route =====
 app.post('/paystack-webhook', async (req, res) => {
-  const event = req.body;
+  try {
+    const event = req.body;
 
-  // Verify payment
-  if(event.event === "charge.success") {
-    const data = event.data;
-    const customerPhone = data.customer.phone; // ensure this is correct from Paystack payload
-    const network = data.metadata.network; // we will send network as metadata
-    const bundle = data.metadata.bundle;   // bundle name as metadata
+    // Verify the webhook signature (optional but recommended)
+    const reference = event.data.reference;
+    const customerPhone = event.data.customer.phone;
+    const amountPaid = event.data.amount / 100; // convert to Ghana cedis if in kobo
 
-    try {
-      // Send order to Bytewave
-      const response = await axios.post(BYTEWAVE_ENDPOINT, {
-        network: network,
-        phone: customerPhone,
-        plan: bundle,
-        api_key: BYTEWAVE_API_KEY
-      });
+    console.log(`Webhook received for reference: ${reference}, phone: ${customerPhone}, amount: ${amountPaid}`);
 
-      console.log("Bytewave response:", response.data);
+    // 1️⃣ Verify payment with Paystack
+    const verifyRes = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
+    );
 
-      // Send admin alert (simple console log for now, email can be added later)
-      console.log(`NEW ORDER: ${network} ${bundle} sent to ${customerPhone}`);
-      
-      res.status(200).send("Success");
-    } catch(err) {
-      console.error("Bytewave error:", err.response?.data || err.message);
-      res.status(500).send("Bytewave error");
+    if (verifyRes.data.data.status !== 'success') {
+      console.log('Payment verification failed');
+      return res.status(400).send('Payment not verified');
     }
-  } else {
-    res.status(200).send("Event ignored");
+
+    console.log('Payment verified successfully ✅');
+
+    // 2️⃣ Determine bundle to buy based on amountPaid
+    // You can customize this mapping based on your MTN/Telecel/AT packages
+    // Example: 
+    // 4.8 → "1GB MTN"
+    // 9.6 → "2GB MTN"
+    let bundlePackage = ''; // set dynamically
+
+    // For demonstration, just sending a generic package
+    bundlePackage = `Bundle corresponding to ${amountPaid} GHS`;
+
+    // 3️⃣ Send request to Bytewave API
+    const bytewaveRes = await axios.post(
+      'https://api.bytewave.com/order', // replace with your actual Bytewave endpoint
+      {
+        phone: customerPhone,
+        package: bundlePackage
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${BYTEWAVE_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('Bytewave response:', bytewaveRes.data);
+
+    // 4️⃣ Respond to Paystack
+    res.status(200).send('Webhook received and processed');
+
+  } catch (error) {
+    console.error('Error processing webhook:', error.message);
+    res.status(500).send('Internal server error');
   }
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
+// ===== Start Server =====
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });

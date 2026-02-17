@@ -1,4 +1,4 @@
-// server.js
+// ================== IMPORT PACKAGES ==================
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -8,28 +8,76 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Environment variables
+// ================== ENV VARIABLES ==================
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const BYTEWAVE_API_KEY = process.env.BYTEWAVE_API_KEY;
 
-// ===== Homepage Route =====
+// ================== BUYING PRICES ==================
+
+// MTN
+const MTN_PRICES = [4.5,9,13,17,21,25.8,34,41.5,59.5,79,97.25,118,156,193];
+
+// TELECEL
+const TELECEL_PRICES = [39,58,76,110,146,182];
+
+// AT
+const AT_PRICES = [4.3,8.4,12,16,19.25,24,27.5,31.5,39];
+
+// ================== TRANSACTION STORAGE ==================
+let transactions = [];
+
+// ================== HOME ROUTE ==================
 app.get('/', (req, res) => {
   res.send('Auto Data Vendor server is running ✅');
 });
 
-// ===== Paystack Webhook Route =====
+// ================== ADMIN DASHBOARD ==================
+app.get('/admin', (req, res) => {
+
+  let totalProfit = transactions.reduce((sum, t) => sum + t.profit, 0);
+
+  res.send(`
+    <h1>DATA VENDOR ADMIN PANEL</h1>
+    <h2>Total Transactions: ${transactions.length}</h2>
+    <h2>Total Profit: GHS ${totalProfit.toFixed(2)}</h2>
+
+    <table border="1" cellpadding="10">
+      <tr>
+        <th>Phone</th>
+        <th>Network</th>
+        <th>Paid</th>
+        <th>Buying Price</th>
+        <th>Profit</th>
+        <th>Status</th>
+      </tr>
+
+      ${transactions.map(t => `
+        <tr>
+          <td>${t.phone}</td>
+          <td>${t.network}</td>
+          <td>${t.paid}</td>
+          <td>${t.buy}</td>
+          <td>${t.profit}</td>
+          <td>${t.status}</td>
+        </tr>
+      `).join("")}
+
+    </table>
+  `);
+});
+
+// ================== PAYSTACK WEBHOOK ==================
 app.post('/paystack-webhook', async (req, res) => {
   try {
+
     const event = req.body;
-
-    // Verify the webhook signature (optional but recommended)
     const reference = event.data.reference;
-    const customerPhone = event.data.customer.phone;
-    const amountPaid = event.data.amount / 100; // convert to Ghana cedis if in kobo
+    const phone = event.data.customer.phone;
+    const amountPaid = event.data.amount / 100;
 
-    console.log(`Webhook received for reference: ${reference}, phone: ${customerPhone}, amount: ${amountPaid}`);
+    console.log(`Payment received: ${reference} | ${phone} | ${amountPaid}`);
 
-    // 1️⃣ Verify payment with Paystack
+    // VERIFY PAYMENT
     const verifyRes = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
@@ -40,46 +88,85 @@ app.post('/paystack-webhook', async (req, res) => {
       return res.status(400).send('Payment not verified');
     }
 
-    console.log('Payment verified successfully ✅');
+    console.log('Payment verified successfully');
 
-    // 2️⃣ Determine bundle to buy based on amountPaid
-    // You can customize this mapping based on your MTN/Telecel/AT packages
-    // Example: 
-    // 4.8 → "1GB MTN"
-    // 9.6 → "2GB MTN"
-    let bundlePackage = ''; // set dynamically
+    // ================= DETERMINE NETWORK =================
+    let network = "MTN"; // default
+    if (phone.startsWith("020") || phone.startsWith("050")) network = "TELECEL";
+    if (phone.startsWith("027") || phone.startsWith("057")) network = "AT";
 
-    // For demonstration, just sending a generic package
-    bundlePackage = `Bundle corresponding to ${amountPaid} GHS`;
+    // ================= MATCH BUYING PRICE =================
+    let buyingPrice = 0;
 
-    // 3️⃣ Send request to Bytewave API
+    if (network === "MTN") {
+      buyingPrice = MTN_PRICES.find(p => p <= amountPaid);
+    }
+
+    if (network === "TELECEL") {
+      buyingPrice = TELECEL_PRICES.find(p => p <= amountPaid);
+    }
+
+    if (network === "AT") {
+      buyingPrice = AT_PRICES.find(p => p <= amountPaid);
+    }
+
+    if (!buyingPrice) {
+      console.log("No matching bundle price");
+      return res.status(400).send("Bundle not matched");
+    }
+
+    // ================= PROFIT =================
+    const profit = amountPaid - buyingPrice;
+
+    // ================= SEND ORDER TO BYTEWAVE =================
     const bytewaveRes = await axios.post(
-      'https://api.bytewave.com/order', // replace with your actual Bytewave endpoint
+      "https://api.bytewave.com/order",
       {
-        phone: customerPhone,
-        package: bundlePackage
+        phone: phone,
+        amount: buyingPrice
       },
       {
         headers: {
-          'Authorization': `Bearer ${BYTEWAVE_API_KEY}`,
+          Authorization: `Bearer ${BYTEWAVE_API_KEY}`,
           'Content-Type': 'application/json'
         }
       }
     );
 
-    console.log('Bytewave response:', bytewaveRes.data);
+    console.log("Bytewave success:", bytewaveRes.data);
 
-    // 4️⃣ Respond to Paystack
-    res.status(200).send('Webhook received and processed');
+    // ================= SAVE SUCCESS TRANSACTION =================
+    transactions.push({
+      phone: phone,
+      network: network,
+      paid: amountPaid,
+      buy: buyingPrice,
+      profit: profit,
+      status: "SUCCESS"
+    });
+
+    res.status(200).send('Webhook processed');
 
   } catch (error) {
-    console.error('Error processing webhook:', error.message);
-    res.status(500).send('Internal server error');
+
+    console.log("ERROR:", error.message);
+
+    transactions.push({
+      phone: "unknown",
+      network: "unknown",
+      paid: 0,
+      buy: 0,
+      profit: 0,
+      status: "FAILED"
+    });
+
+    res.status(500).send('Server error');
   }
 });
 
-// ===== Start Server =====
+// ================== START SERVER ==================
 const PORT = process.env.PORT || 10000;
+
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

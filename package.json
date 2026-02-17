@@ -1,0 +1,15 @@
+{
+  "name": "auto-data-vendor",
+  "version": "1.0.0",
+  "description": "Automatic data vendor Ghana",
+  "main": "Server.js",
+  "scripts": {
+    "start": "node Server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2"
+  }
+}

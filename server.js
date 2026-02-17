@@ -8,40 +8,29 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// ========== ENV VARIABLES ==========
+// ===== ENV VARIABLES =====
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const BYTEWAVE_API_KEY = process.env.BYTEWAVE_API_KEY;
+const BYTEWAVE_BASE_URL = "https://api.bytewavegh.com"; // ← Bytewave domain from Postman
 
-// ========== TRANSACTIONS STORAGE ==========
+// ===== TRANSACTIONS STORAGE =====
 let transactions = [];
 
-// ====== PRICE LISTS ======
+// ===== PRICE LISTS =====
 const MTN_PRICES = [4.5, 9, 13, 17, 21, 25.8, 34, 41.5, 59.5, 79, 97.25, 118, 156, 193];
 const TELECEL_PRICES = [39, 58, 76, 110, 146, 182];
 const AT_PRICES = [4.3, 8.4, 12, 16, 19.25, 24, 27.5, 31.5, 39];
 
-const packagesMTN = {
-  4.5: "1GB MTN", 9: "2GB MTN", 13: "3GB MTN", 17: "4GB MTN", 21: "5GB MTN",
-  25.8: "6GB MTN", 34: "7GB MTN", 41.5: "8GB MTN", 59.5: "10GB MTN", 79: "15GB MTN",
-  97.25: "20GB MTN", 118: "25GB MTN", 156: "30GB MTN", 193: "40GB MTN"
-};
+const packagesMTN = { 4.5:1,9:2,13:3,17:4,21:5,25.8:6,34:7,41.5:8,59.5:10,79:15,97.25:20,118:25,156:30,193:40 };
+const packagesTelecel = { 39:1,58:2,76:3,110:5,146:8,182:10 };
+const packagesAT = { 4.3:1,8.4:2,12:3,16:4,19.25:5,24:6,27.5:7,31.5:8,39:10 };
 
-const packagesTelecel = {
-  39: "1GB TELECEL", 58: "2GB TELECEL", 76: "3GB TELECEL", 110: "5GB TELECEL",
-  146: "8GB TELECEL", 182: "10GB TELECEL"
-};
-
-const packagesAT = {
-  4.3: "1GB AT", 8.4: "2GB AT", 12: "3GB AT", 16: "4GB AT", 19.25: "5GB AT",
-  24: "6GB AT", 27.5: "7GB AT", 31.5: "8GB AT", 39: "10GB AT"
-};
-
-// ====== HOMEPAGE ======
+// ===== HOMEPAGE =====
 app.get('/', (req, res) => {
   res.send('Auto Data Vendor server is running ✅');
 });
 
-// ====== ADMIN PANEL ======
+// ===== ADMIN PANEL =====
 app.get('/admin', (req, res) => {
   let html = `<h1>Admin Panel</h1>`;
   html += `<table border="1" cellpadding="10"><tr>
@@ -61,7 +50,7 @@ app.get('/admin', (req, res) => {
   res.send(html);
 });
 
-// ====== PAYSTACK WEBHOOK ======
+// ===== PAYSTACK WEBHOOK =====
 app.post('/paystack-webhook', async (req, res) => {
   try {
     const event = req.body;
@@ -85,30 +74,30 @@ app.post('/paystack-webhook', async (req, res) => {
     console.log('Payment verified ✅');
 
     // DETERMINE NETWORK
-    let network = "MTN"; // default
-    if (phone.startsWith("020") || phone.startsWith("050")) network = "TELECEL";
-    if (phone.startsWith("027") || phone.startsWith("057")) network = "AT";
+    let network = "mtn";
+    if (phone.startsWith("020") || phone.startsWith("050")) network = "telecel";
+    if (phone.startsWith("027") || phone.startsWith("057")) network = "at";
 
     // MAP AMOUNT TO PACKAGE
     let buyingPrice = 0;
-    let bundlePackage = "";
+    let capacity = 0;
 
-    if (network === "MTN") {
+    if (network === "mtn") {
       buyingPrice = MTN_PRICES.find(p => p <= amountPaid);
-      bundlePackage = packagesMTN[buyingPrice];
-    } else if (network === "TELECEL") {
+      capacity = packagesMTN[buyingPrice];
+    } else if (network === "telecel") {
       buyingPrice = TELECEL_PRICES.find(p => p <= amountPaid);
-      bundlePackage = packagesTelecel[buyingPrice];
-    } else if (network === "AT") {
+      capacity = packagesTelecel[buyingPrice];
+    } else if (network === "at") {
       buyingPrice = AT_PRICES.find(p => p <= amountPaid);
-      bundlePackage = packagesAT[buyingPrice];
+      capacity = packagesAT[buyingPrice];
     }
 
-    if (!bundlePackage) {
+    if (!capacity) {
       console.log("No matching package found for this amount");
       transactions.push({
-        phone: phone,
-        network: network,
+        phone,
+        network,
         paid: amountPaid,
         buy: 0,
         profit: 0,
@@ -121,8 +110,13 @@ app.post('/paystack-webhook', async (req, res) => {
 
     // SEND ORDER TO BYTEWAVE
     const bytewaveRes = await axios.post(
-      "https://api.bytewave.com/order", // ← Replace with your actual Bytewave URL
-      { phone: phone, package: bundlePackage },
+      `${BYTEWAVE_BASE_URL}/v1/purchaseBundle`,
+      {
+        network,
+        reference,
+        msisdn: phone,
+        capacity
+      },
       {
         headers: {
           Authorization: `Bearer ${BYTEWAVE_API_KEY}`,
@@ -134,11 +128,11 @@ app.post('/paystack-webhook', async (req, res) => {
     console.log("Bytewave response:", bytewaveRes.data);
 
     transactions.push({
-      phone: phone,
-      network: network,
+      phone,
+      network,
       paid: amountPaid,
       buy: buyingPrice,
-      profit: profit,
+      profit,
       status: "SUCCESS"
     });
 
@@ -158,7 +152,7 @@ app.post('/paystack-webhook', async (req, res) => {
   }
 });
 
-// ====== START SERVER ======
+// ===== START SERVER =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

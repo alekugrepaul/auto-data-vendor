@@ -10,18 +10,27 @@ app.use(express.json());
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const BYTEWAVE_API_KEY = process.env.BYTEWAVE_API_KEY;
 
+// ADMIN PASSWORD
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Paul5378,.';
 
 // TEST ROUTE
 app.get('/', (req, res) => {
   res.send('Auto Data Vendor server running...');
 });
 
+// ADMIN PANEL ROUTE
+app.get('/admin', (req, res) => {
+  const auth = req.headers['authorization'];
+  if (!auth || auth !== `Bearer ${ADMIN_PASSWORD}`) {
+    return res.status(401).send('Unauthorized');
+  }
+
+  res.send('Welcome to Admin Panel');
+});
 
 // PAYSTACK WEBHOOK
 app.post('/paystack-webhook', async (req, res) => {
-
   try {
-
     const event = req.body;
 
     if (event.event !== 'charge.success') {
@@ -33,7 +42,6 @@ app.post('/paystack-webhook', async (req, res) => {
     const amountPaid = event.data.amount / 100;
 
     console.log("Payment received:", amountPaid, phone);
-
 
     // VERIFY PAYMENT
     const verify = await axios.get(
@@ -52,19 +60,16 @@ app.post('/paystack-webhook', async (req, res) => {
 
     console.log("Payment verified");
 
-
     // FORMAT PHONE TO 233xxxxxxxxx
     if (phone.startsWith("0")) {
       phone = "233" + phone.substring(1);
     }
-
 
     // DETECT NETWORK
     let network = "mtn";
 
     if (phone.startsWith("23320") || phone.startsWith("23350")) network = "telecel";
     if (phone.startsWith("23324") || phone.startsWith("23354") || phone.startsWith("23355")) network = "at";
-
 
     // MAP AMOUNT → BUNDLE SIZE
     let capacity = 1;
@@ -78,9 +83,7 @@ app.post('/paystack-webhook', async (req, res) => {
     if (amountPaid == 38.4) capacity = 8;
     if (amountPaid == 48) capacity = 10;
 
-
     console.log("Buying bundle:", network, capacity, "GB");
-
 
     // CALL BYTEWAVE
     const bytewave = await axios.post(
@@ -107,9 +110,7 @@ app.post('/paystack-webhook', async (req, res) => {
     console.log("BYTEWAVE ERROR:", err.response?.data || err.message);
     res.sendStatus(500);
   }
-
 });
-
 
 app.listen(10000, () => {
   console.log("Server running on port 10000");

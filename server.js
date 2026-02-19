@@ -32,7 +32,6 @@ app.post('/paystack-webhook', async (req, res) => {
   try {
     const event = req.body;
 
-    // Only respond to successful payments
     if (event.event !== 'charge.success') {
       return res.sendStatus(200);
     }
@@ -43,7 +42,7 @@ app.post('/paystack-webhook', async (req, res) => {
 
     console.log("Payment received:", amountPaid, phone);
 
-    // ================= VERIFY PAYSTACK PAYMENT =================
+    // ================= VERIFY PAYMENT =================
     const verify = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -65,7 +64,6 @@ app.post('/paystack-webhook', async (req, res) => {
       phone = "233" + phone.substring(1);
     }
 
-    // Remove + if present
     if (phone.startsWith("+")) {
       phone = phone.replace("+", "");
     }
@@ -73,23 +71,31 @@ app.post('/paystack-webhook', async (req, res) => {
     // ================= DETECT NETWORK =================
     let network = "mtn";
 
+    // FORCE MTN prefixes
+    if (
+      phone.startsWith("23359") ||
+      phone.startsWith("23353") ||
+      phone.startsWith("23324") ||
+      phone.startsWith("23354") ||
+      phone.startsWith("23355") ||
+      phone.startsWith("23325")
+    ) {
+      network = "mtn";
+    }
+
+    // TELECEL prefixes
     if (phone.startsWith("23320") || phone.startsWith("23350")) {
       network = "telecel";
     }
 
-    if (
-      phone.startsWith("23324") ||
-      phone.startsWith("23354") ||
-      phone.startsWith("23355")
-    ) {
+    // AIRTELTIGO prefixes
+    if (phone.startsWith("23327") || phone.startsWith("23357")) {
       network = "at";
     }
 
     console.log("Detected network:", network);
 
-    // ================= MAP AMOUNT TO DATA SIZE =================
-    let capacity = 0;
-
+    // ================= MAP AMOUNT TO BUNDLE SIZE =================
     const bundleMap = {
       4.8: 1,
       9.6: 2,
@@ -101,7 +107,7 @@ app.post('/paystack-webhook', async (req, res) => {
       48: 10
     };
 
-    capacity = bundleMap[amountPaid];
+    const capacity = bundleMap[amountPaid];
 
     if (!capacity) {
       console.log("Amount not mapped to bundle:", amountPaid);
@@ -110,7 +116,7 @@ app.post('/paystack-webhook', async (req, res) => {
 
     console.log("Buying bundle:", network, capacity, "GB");
 
-    // ================= CALL BYTEWAVE (FIXED ENDPOINT) =================
+    // ================= BYTEWAVE API CALL =================
     const bytewave = await axios.post(
       'https://bytewavegh.com/api/v1/purchaseBundle',
       {
@@ -122,7 +128,8 @@ app.post('/paystack-webhook', async (req, res) => {
       {
         headers: {
           Authorization: `Bearer ${BYTEWAVE_API_KEY}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0'
         }
       }
     );

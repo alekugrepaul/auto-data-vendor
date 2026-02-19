@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const https = require('https');
 
 const app = express();
 app.use(cors());
@@ -24,7 +25,6 @@ app.get('/admin', (req, res) => {
   if (!auth || auth !== `Bearer ${ADMIN_PASSWORD}`) {
     return res.status(401).send('Unauthorized');
   }
-
   res.send('Welcome to Admin Panel');
 });
 
@@ -33,17 +33,18 @@ app.post('/paystack-webhook', async (req, res) => {
   try {
     const event = req.body;
 
+    // Only process successful payments
     if (event.event !== 'charge.success') {
       return res.sendStatus(200);
     }
 
     const reference = event.data.reference;
-    let phone = event.data.customer.phone;
+    let phone = event.data.customer.phone || event.data.customer.mobile || "";
     const amountPaid = event.data.amount / 100;
 
     console.log("Payment received:", amountPaid, phone);
 
-    // VERIFY PAYMENT
+    // VERIFY PAYMENT FROM PAYSTACK
     const verify = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -53,7 +54,7 @@ app.post('/paystack-webhook', async (req, res) => {
       }
     );
 
-    if (verify.data.data.status !== "success") {
+    if (!verify.data || verify.data.data.status !== "success") {
       console.log("Payment not verified");
       return res.sendStatus(400);
     }
@@ -63,6 +64,9 @@ app.post('/paystack-webhook', async (req, res) => {
     // FORMAT PHONE TO 233xxxxxxxxx
     if (phone.startsWith("0")) {
       phone = "233" + phone.substring(1);
+    }
+    if (phone.startsWith("+233")) {
+      phone = phone.replace("+", "");
     }
 
     // DETECT NETWORK
@@ -85,7 +89,7 @@ app.post('/paystack-webhook', async (req, res) => {
 
     console.log("Buying bundle:", network, capacity, "GB");
 
-    // CALL BYTEWAVE
+    // CALL BYTEWAVE API (SSL FIX INCLUDED)
     const bytewave = await axios.post(
       'https://api.bytewave.com/v1/purchaseBundle',
       {
@@ -98,7 +102,10 @@ app.post('/paystack-webhook', async (req, res) => {
         headers: {
           Authorization: `Bearer ${BYTEWAVE_API_KEY}`,
           'Content-Type': 'application/json'
-        }
+        },
+        httpsAgent: new https.Agent({
+          rejectUnauthorized: false
+        })
       }
     );
 
@@ -112,6 +119,9 @@ app.post('/paystack-webhook', async (req, res) => {
   }
 });
 
-app.listen(10000, () => {
-  console.log("Server running on port 10000");
+// IMPORTANT FOR RENDER PORT
+const PORT = process.env.PORT || 10000;
+
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
 });

@@ -1,42 +1,49 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
-const https = require('https');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ENV VARIABLES
+// ================= ENV VARIABLES =================
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const BYTEWAVE_API_KEY = process.env.BYTEWAVE_API_KEY;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Paul5378,.';
 
-// ignore SSL error (important for Bytewave)
-const agent = new https.Agent({
-  rejectUnauthorized: false
-});
-
-// TEST ROUTE
+// ================= TEST ROUTE =================
 app.get('/', (req, res) => {
   res.send('Auto Data Vendor server running...');
 });
 
-// PAYSTACK WEBHOOK
+// ================= ADMIN PANEL =================
+app.get('/admin', (req, res) => {
+  const auth = req.headers['authorization'];
+
+  if (!auth || auth !== `Bearer ${ADMIN_PASSWORD}`) {
+    return res.status(401).send('Unauthorized');
+  }
+
+  res.send('Welcome to Admin Panel');
+});
+
+// ================= PAYSTACK WEBHOOK =================
 app.post('/paystack-webhook', async (req, res) => {
   try {
     const event = req.body;
 
+    // Only respond to successful payments
     if (event.event !== 'charge.success') {
       return res.sendStatus(200);
     }
 
     const reference = event.data.reference;
-    let phone = event.data.customer.phone;
+    let phone = event.data.customer.phone || "";
     const amountPaid = event.data.amount / 100;
 
     console.log("Payment received:", amountPaid, phone);
 
-    // VERIFY PAYMENT WITH PAYSTACK
+    // ================= VERIFY PAYSTACK PAYMENT =================
     const verify = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -53,34 +60,59 @@ app.post('/paystack-webhook', async (req, res) => {
 
     console.log("Payment verified");
 
-    // FORMAT PHONE
+    // ================= FORMAT PHONE =================
     if (phone.startsWith("0")) {
       phone = "233" + phone.substring(1);
     }
 
-    // DETECT NETWORK
+    // Remove + if present
+    if (phone.startsWith("+")) {
+      phone = phone.replace("+", "");
+    }
+
+    // ================= DETECT NETWORK =================
     let network = "mtn";
 
-    if (phone.startsWith("23320") || phone.startsWith("23350")) network = "telecel";
-    if (phone.startsWith("23324") || phone.startsWith("23354") || phone.startsWith("23355")) network = "at";
+    if (phone.startsWith("23320") || phone.startsWith("23350")) {
+      network = "telecel";
+    }
 
-    // AMOUNT TO BUNDLE SIZE
-    let capacity = 1;
+    if (
+      phone.startsWith("23324") ||
+      phone.startsWith("23354") ||
+      phone.startsWith("23355")
+    ) {
+      network = "at";
+    }
 
-    if (amountPaid == 4.8) capacity = 1;
-    if (amountPaid == 9.6) capacity = 2;
-    if (amountPaid == 14.4) capacity = 3;
-    if (amountPaid == 19.2) capacity = 4;
-    if (amountPaid == 24) capacity = 5;
-    if (amountPaid == 28.8) capacity = 6;
-    if (amountPaid == 38.4) capacity = 8;
-    if (amountPaid == 48) capacity = 10;
+    console.log("Detected network:", network);
+
+    // ================= MAP AMOUNT TO DATA SIZE =================
+    let capacity = 0;
+
+    const bundleMap = {
+      4.8: 1,
+      9.6: 2,
+      14.4: 3,
+      19.2: 4,
+      24: 5,
+      28.8: 6,
+      38.4: 8,
+      48: 10
+    };
+
+    capacity = bundleMap[amountPaid];
+
+    if (!capacity) {
+      console.log("Amount not mapped to bundle:", amountPaid);
+      return res.sendStatus(400);
+    }
 
     console.log("Buying bundle:", network, capacity, "GB");
 
-    // BYTEWAVE API CALL (FIXED)
+    // ================= CALL BYTEWAVE (FIXED ENDPOINT) =================
     const bytewave = await axios.post(
-      "https://bytewavegh.com/api/v1/purchaseBundle",
+      'https://bytewavegh.com/api/v1/purchaseBundle',
       {
         network: network,
         reference: reference,
@@ -90,9 +122,8 @@ app.post('/paystack-webhook', async (req, res) => {
       {
         headers: {
           Authorization: `Bearer ${BYTEWAVE_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        httpsAgent: agent
+          'Content-Type': 'application/json'
+        }
       }
     );
 
@@ -106,6 +137,9 @@ app.post('/paystack-webhook', async (req, res) => {
   }
 });
 
-app.listen(10000, () => {
-  console.log("Server running on port 10000");
+// ================= START SERVER =================
+const PORT = process.env.PORT || 10000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });

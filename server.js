@@ -1,150 +1,120 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
-const cors = require('cors');
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
-// ================= ENV VARIABLES =================
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
-const BYTEWAVE_API_KEY = process.env.BYTEWAVE_API_KEY;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Paul5378,.';
+const PORT = process.env.PORT || 10000;
 
-// ================= TEST ROUTE =================
-app.get('/', (req, res) => {
-  res.send('Auto Data Vendor server running...');
-});
+// ===============================
+// NETWORK DETECTION
+// ===============================
+function detectNetwork(phone) {
 
-// ================= ADMIN PANEL =================
-app.get('/admin', (req, res) => {
-  const auth = req.headers['authorization'];
+  const local = phone.replace('+233', '0');
 
-  if (!auth || auth !== `Bearer ${ADMIN_PASSWORD}`) {
-    return res.status(401).send('Unauthorized');
+  if (
+    local.startsWith('059') ||
+    local.startsWith('053') ||
+    local.startsWith('054') ||
+    local.startsWith('055') ||
+    local.startsWith('024') ||
+    local.startsWith('025')
+  ) {
+    return 'mtn';
   }
 
-  res.send('Welcome to Admin Panel');
-});
+  if (local.startsWith('020') || local.startsWith('050')) {
+    return 'telecel';
+  }
 
-// ================= PAYSTACK WEBHOOK =================
-app.post('/paystack-webhook', async (req, res) => {
+  if (local.startsWith('026') || local.startsWith('056')) {
+    return 'at';
+  }
+
+  return null;
+}
+
+// ===============================
+// WEBHOOK (PAYMENT RECEIVED)
+// ===============================
+app.post('/webhook', async (req, res) => {
+
   try {
-    const event = req.body;
 
-    if (event.event !== 'charge.success') {
-      return res.sendStatus(200);
+    const { amount, phone } = req.body;
+
+    console.log('Payment received:', amount, phone);
+
+    if (!amount || !phone) {
+      return res.status(400).json({ error: 'Missing data' });
     }
 
-    const reference = event.data.reference;
-    let phone = event.data.customer.phone || "";
-    const amountPaid = event.data.amount / 100;
+    console.log('Payment verified');
 
-    console.log("Payment received:", amountPaid, phone);
+    const network = detectNetwork(phone);
 
-    // ================= VERIFY PAYMENT =================
-    const verify = await axios.get(
-      `https://api.paystack.co/transaction/verify/${reference}`,
-      {
-        headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`
-        }
-      }
-    );
-
-    if (verify.data.data.status !== "success") {
-      console.log("Payment not verified");
-      return res.sendStatus(400);
+    if (!network) {
+      console.log('Unknown network');
+      return res.status(400).json({ error: 'Unsupported network' });
     }
 
-    console.log("Payment verified");
+    console.log('Detected network:', network);
 
-    // ================= FORMAT PHONE =================
-    if (phone.startsWith("+")) {
-      phone = phone.replace("+", "");
-    }
+    // Example: ₵4.8 = 1GB
+    let capacity = 1;
 
-    if (phone.startsWith("0")) {
-      phone = "233" + phone.substring(1);
-    }
+    const reference = Date.now().toString();
 
-    // ================= DETECT NETWORK =================
-    let network = "mtn";
+    const formattedPhone = phone.startsWith('+233')
+      ? phone.replace('+233', '0')
+      : phone;
 
-    if (
-      phone.startsWith("23359") ||
-      phone.startsWith("23353") ||
-      phone.startsWith("23324") ||
-      phone.startsWith("23354") ||
-      phone.startsWith("23355") ||
-      phone.startsWith("23325")
-    ) {
-      network = "mtn";
-    }
+    console.log('Buying bundle:', network, capacity + 'GB');
 
-    if (phone.startsWith("23320") || phone.startsWith("23350")) {
-      network = "telecel";
-    }
-
-    if (phone.startsWith("23327") || phone.startsWith("23357")) {
-      network = "at";
-    }
-
-    console.log("Detected network:", network);
-
-    // ================= SAFE AMOUNT MAPPING =================
-    const roundedAmount = Number(amountPaid.toFixed(1));
-
-    const bundleMap = {
-      "4.8": 1,
-      "9.6": 2,
-      "14.4": 3,
-      "19.2": 4,
-      "24.0": 5,
-      "28.8": 6,
-      "38.4": 8,
-      "48.0": 10
-    };
-
-    const capacity = bundleMap[roundedAmount.toFixed(1)];
-
-    if (!capacity) {
-      console.log("Amount not mapped to bundle:", roundedAmount);
-      return res.sendStatus(400);
-    }
-
-    console.log("Buying bundle:", network, capacity, "GB");
-
-    // ================= CALL BYTEWAVE API =================
-    const bytewave = await axios.post(
-      'https://dev.bytewavegh.com/v1/purchaseBundle',
+    // ===============================
+    // BYTEWAVE PURCHASE
+    // ===============================
+    const bytewaveResponse = await axios.post(
+      'https://dev.bytewavegh.com/api/v1/purchaseBundle',
       {
         network: network,
         reference: reference,
-        msisdn: phone,
+        msisdn: formattedPhone,
         capacity: capacity
       },
       {
         headers: {
-          Authorization: `Bearer ${BYTEWAVE_API_KEY}`,
+          Authorization: `Bearer ${process.env.BYTEWAVE_API_KEY}`,
           'Content-Type': 'application/json'
         }
       }
     );
 
-    console.log("Bytewave response:", bytewave.data);
+    console.log('BYTEWAVE SUCCESS:', bytewaveResponse.data);
 
-    res.sendStatus(200);
+    res.status(200).json({ success: true });
 
-  } catch (err) {
-    console.log("BYTEWAVE ERROR:", err.response?.data || err.message);
-    res.sendStatus(500);
+  } catch (error) {
+
+    if (error.response) {
+      console.log('BYTEWAVE ERROR:', error.response.data);
+    } else {
+      console.log('SERVER ERROR:', error.message);
+    }
+
+    res.status(500).json({ error: 'Transaction failed' });
   }
+
 });
 
-// ================= START SERVER =================
-const PORT = process.env.PORT || 10000;
+// ===============================
+app.get('/', (req, res) => {
+  res.send('Server Running...');
+});
 
+// ===============================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

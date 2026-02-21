@@ -32,7 +32,6 @@ app.post('/paystack-webhook', async (req, res) => {
   try {
     const event = req.body;
 
-    // Only respond to successful payments
     if (event.event !== 'charge.success') {
       return res.sendStatus(200);
     }
@@ -72,7 +71,6 @@ app.post('/paystack-webhook', async (req, res) => {
     // ================= DETECT NETWORK =================
     let network = "mtn";
 
-    // MTN prefixes (including 059 & 053)
     if (
       phone.startsWith("23359") ||
       phone.startsWith("23353") ||
@@ -84,34 +82,34 @@ app.post('/paystack-webhook', async (req, res) => {
       network = "mtn";
     }
 
-    // TELECEL prefixes
     if (phone.startsWith("23320") || phone.startsWith("23350")) {
       network = "telecel";
     }
 
-    // AIRTELTIGO prefixes
     if (phone.startsWith("23327") || phone.startsWith("23357")) {
       network = "at";
     }
 
     console.log("Detected network:", network);
 
-    // ================= MAP AMOUNT TO DATA SIZE =================
+    // ================= SAFE AMOUNT MAPPING =================
+    const roundedAmount = Number(amountPaid.toFixed(1));
+
     const bundleMap = {
-      4.8: 1,
-      9.6: 2,
-      14.4: 3,
-      19.2: 4,
-      24: 5,
-      28.8: 6,
-      38.4: 8,
-      48: 10
+      "4.8": 1,
+      "9.6": 2,
+      "14.4": 3,
+      "19.2": 4,
+      "24.0": 5,
+      "28.8": 6,
+      "38.4": 8,
+      "48.0": 10
     };
 
-    const capacity = bundleMap[amountPaid];
+    const capacity = bundleMap[roundedAmount.toFixed(1)];
 
     if (!capacity) {
-      console.log("Amount not mapped to bundle:", amountPaid);
+      console.log("Amount not mapped to bundle:", roundedAmount);
       return res.sendStatus(400);
     }
 

@@ -32,6 +32,7 @@ app.post('/paystack-webhook', async (req, res) => {
   try {
     const event = req.body;
 
+    // Only respond to successful payments
     if (event.event !== 'charge.success') {
       return res.sendStatus(200);
     }
@@ -60,18 +61,18 @@ app.post('/paystack-webhook', async (req, res) => {
     console.log("Payment verified");
 
     // ================= FORMAT PHONE =================
-    if (phone.startsWith("0")) {
-      phone = "233" + phone.substring(1);
-    }
-
     if (phone.startsWith("+")) {
       phone = phone.replace("+", "");
+    }
+
+    if (phone.startsWith("0")) {
+      phone = "233" + phone.substring(1);
     }
 
     // ================= DETECT NETWORK =================
     let network = "mtn";
 
-    // FORCE MTN prefixes
+    // MTN prefixes (including 059 & 053)
     if (
       phone.startsWith("23359") ||
       phone.startsWith("23353") ||
@@ -95,7 +96,7 @@ app.post('/paystack-webhook', async (req, res) => {
 
     console.log("Detected network:", network);
 
-    // ================= MAP AMOUNT TO BUNDLE SIZE =================
+    // ================= MAP AMOUNT TO DATA SIZE =================
     const bundleMap = {
       4.8: 1,
       9.6: 2,
@@ -116,9 +117,9 @@ app.post('/paystack-webhook', async (req, res) => {
 
     console.log("Buying bundle:", network, capacity, "GB");
 
-    // ================= BYTEWAVE API CALL =================
+    // ================= CALL BYTEWAVE API =================
     const bytewave = await axios.post(
-     /v1/purchaseBundle,
+      'https://dev.bytewavegh.com/v1/purchaseBundle',
       {
         network: network,
         reference: reference,
@@ -128,8 +129,7 @@ app.post('/paystack-webhook', async (req, res) => {
       {
         headers: {
           Authorization: `Bearer ${BYTEWAVE_API_KEY}`,
-          'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0'
+          'Content-Type': 'application/json'
         }
       }
     );

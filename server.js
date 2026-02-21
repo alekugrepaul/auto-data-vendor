@@ -118,7 +118,7 @@ app.post('/paystack-webhook', async (req, res) => {
 
     // ================= BYTEWAVE API CALL =================
     const bytewave = await axios.post(
-      'https://bytewavegh.com/v1/purchaseBundle',
+     /v1/purchaseBundle,
       {
         network: network,
         reference: reference,

@@ -11,7 +11,9 @@ const PORT = process.env.PORT || 10000;
 // ===============================
 function detectNetwork(phone) {
 
-  const local = phone.replace('+233', '0');
+  const local = phone.startsWith('+233')
+    ? phone.replace('+233', '0')
+    : phone;
 
   if (
     local.startsWith('059') ||
@@ -21,22 +23,27 @@ function detectNetwork(phone) {
     local.startsWith('024') ||
     local.startsWith('025')
   ) {
-    return 'mtn';
+    return 'MTN';
   }
 
   if (local.startsWith('020') || local.startsWith('050')) {
-    return 'telecel';
+    return 'TELECEL';
   }
 
-  if (local.startsWith('026') || local.startsWith('056') || local.startsWith('027') || local.startsWith('057')) {
-    return 'at';
+  if (
+    local.startsWith('026') ||
+    local.startsWith('056') ||
+    local.startsWith('027') ||
+    local.startsWith('057')
+  ) {
+    return 'AT';
   }
 
   return null;
 }
 
 // ===============================
-// PAYSTACK WEBHOOK (FIXED)
+// PAYSTACK WEBHOOK
 // ===============================
 app.post('/webhook', async (req, res) => {
 
@@ -70,23 +77,23 @@ app.post('/webhook', async (req, res) => {
       ? phone.replace('+233', '0')
       : phone;
 
-    const reference = event.data.reference || Date.now().toString();
+    const orderReference = "ORD" + Date.now(); // Unique order ID
 
-    const capacity = 1; // 1GB example
+    const capacityInGb = 1; // Example: 1GB bundle
 
     console.log('Detected network:', network);
-    console.log('Buying bundle:', capacity + 'GB');
+    console.log('Buying bundle:', capacityInGb + 'GB');
 
     // ===============================
-    // BYTEWAVE PURCHASE
+    // BYTEWAVE PURCHASE (FIXED FORMAT)
     // ===============================
     const bytewaveResponse = await axios.post(
-      'https://dev.bytewavegh.com/api/v1/purchaseBundle',
+      'https://api.bytewavegh.com/api/v1/data/purchase', // Use LIVE endpoint if provided
       {
-        network: network,
-        reference: reference,
-        msisdn: formattedPhone,
-        capacity: capacity
+        networkReference: network,          // MTN / TELECEL / AT
+        orderReference: orderReference,     // Required
+        recipientPhone: formattedPhone,     // Required
+        capacityInGb: capacityInGb          // Must be NUMBER
       },
       {
         headers: {

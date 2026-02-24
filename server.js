@@ -51,7 +51,6 @@ app.post('/webhook', async (req, res) => {
 
     const event = req.body;
 
-    // Only process successful payments
     if (event.event !== 'charge.success') {
       return res.sendStatus(200);
     }
@@ -66,9 +65,9 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
-    const network = detectNetwork(phone);
+    const networkKey = detectNetwork(phone);
 
-    if (!network) {
+    if (!networkKey) {
       console.log('Unsupported network:', phone);
       return res.sendStatus(200);
     }
@@ -77,22 +76,22 @@ app.post('/webhook', async (req, res) => {
       ? phone.replace('+233', '0')
       : phone;
 
-    const orderReference = "ORD" + Date.now();
-    const capacityInGb = 1; // Change if needed
+    const orderReference = "ORD-" + Date.now();
+    const capacityInGb = 1;
 
-    console.log('Detected network:', network);
+    console.log('Detected network:', networkKey);
     console.log('Buying bundle:', capacityInGb + 'GB');
 
     // ===============================
-    // BYTEWAVE PURCHASE (DEV ENDPOINT)
+    // BYTEWAVE REQUEST
     // ===============================
     const bytewaveResponse = await axios.post(
       'https://dev.bytewavegh.com/api/v1/purchaseBundle',
       {
-        network: network,              // mtn, telecel, at
-        reference: orderReference,     // unique reference
-        msisdn: formattedPhone,        // 0XXXXXXXXX
-        capacity: capacityInGb         // number only
+        networkReference: networkKey,
+        orderReference: orderReference,
+        recipientPhone: formattedPhone,
+        capacityInGb: capacityInGb
       },
       {
         headers: {
@@ -104,7 +103,7 @@ app.post('/webhook', async (req, res) => {
 
     console.log('BYTEWAVE SUCCESS:', bytewaveResponse.data);
 
-    res.sendStatus(200);
+    return res.sendStatus(200);
 
   } catch (error) {
 
@@ -114,7 +113,7 @@ app.post('/webhook', async (req, res) => {
       console.log('SERVER ERROR:', error.message);
     }
 
-    res.sendStatus(500);
+    return res.sendStatus(500);
   }
 
 });

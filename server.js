@@ -28,7 +28,7 @@ function detectNetwork(phone) {
     return 'telecel';
   }
 
-  if (local.startsWith('026') || local.startsWith('056')) {
+  if (local.startsWith('026') || local.startsWith('056') || local.startsWith('027') || local.startsWith('057')) {
     return 'at';
   }
 
@@ -36,41 +36,46 @@ function detectNetwork(phone) {
 }
 
 // ===============================
-// WEBHOOK (PAYMENT RECEIVED)
+// PAYSTACK WEBHOOK (FIXED)
 // ===============================
 app.post('/webhook', async (req, res) => {
 
   try {
 
-    const { amount, phone } = req.body;
+    const event = req.body;
+
+    // Only process successful payments
+    if (event.event !== 'charge.success') {
+      return res.sendStatus(200);
+    }
+
+    const amount = event.data.amount / 100; // convert kobo to GHS
+    const phone = event.data.metadata?.phone;
 
     console.log('Payment received:', amount, phone);
 
-    if (!amount || !phone) {
-      return res.status(400).json({ error: 'Missing data' });
+    if (!phone) {
+      console.log('Phone missing in metadata');
+      return res.sendStatus(200);
     }
-
-    console.log('Payment verified');
 
     const network = detectNetwork(phone);
 
     if (!network) {
-      console.log('Unknown network');
-      return res.status(400).json({ error: 'Unsupported network' });
+      console.log('Unsupported network:', phone);
+      return res.sendStatus(200);
     }
-
-    console.log('Detected network:', network);
-
-    // Example: ₵4.8 = 1GB
-    let capacity = 1;
-
-    const reference = Date.now().toString();
 
     const formattedPhone = phone.startsWith('+233')
       ? phone.replace('+233', '0')
       : phone;
 
-    console.log('Buying bundle:', network, capacity + 'GB');
+    const reference = event.data.reference || Date.now().toString();
+
+    const capacity = 1; // 1GB example
+
+    console.log('Detected network:', network);
+    console.log('Buying bundle:', capacity + 'GB');
 
     // ===============================
     // BYTEWAVE PURCHASE
@@ -93,7 +98,7 @@ app.post('/webhook', async (req, res) => {
 
     console.log('BYTEWAVE SUCCESS:', bytewaveResponse.data);
 
-    res.status(200).json({ success: true });
+    res.sendStatus(200);
 
   } catch (error) {
 
@@ -103,7 +108,7 @@ app.post('/webhook', async (req, res) => {
       console.log('SERVER ERROR:', error.message);
     }
 
-    res.status(500).json({ error: 'Transaction failed' });
+    res.sendStatus(500);
   }
 
 });

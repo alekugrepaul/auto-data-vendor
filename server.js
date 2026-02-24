@@ -7,7 +7,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 10000;
 
 // ===============================
-// NETWORK DETECTION
+// NETWORK DETECTION (LOWERCASE)
 // ===============================
 function detectNetwork(phone) {
 
@@ -23,11 +23,11 @@ function detectNetwork(phone) {
     local.startsWith('024') ||
     local.startsWith('025')
   ) {
-    return 'MTN';
+    return 'mtn';
   }
 
   if (local.startsWith('020') || local.startsWith('050')) {
-    return 'TELECEL';
+    return 'telecel';
   }
 
   if (
@@ -36,7 +36,7 @@ function detectNetwork(phone) {
     local.startsWith('027') ||
     local.startsWith('057')
   ) {
-    return 'AT';
+    return 'at';
   }
 
   return null;
@@ -56,7 +56,7 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
-    const amount = event.data.amount / 100; // convert kobo to GHS
+    const amount = event.data.amount / 100;
     const phone = event.data.metadata?.phone;
 
     console.log('Payment received:', amount, phone);
@@ -77,23 +77,22 @@ app.post('/webhook', async (req, res) => {
       ? phone.replace('+233', '0')
       : phone;
 
-    const orderReference = "ORD" + Date.now(); // Unique order ID
-
-    const capacityInGb = 1; // Example: 1GB bundle
+    const orderReference = "ORD" + Date.now();
+    const capacityInGb = 1; // Change if needed
 
     console.log('Detected network:', network);
     console.log('Buying bundle:', capacityInGb + 'GB');
 
     // ===============================
-    // BYTEWAVE PURCHASE (FIXED FORMAT)
+    // BYTEWAVE PURCHASE (DEV ENDPOINT)
     // ===============================
     const bytewaveResponse = await axios.post(
-      'https://api.bytewavegh.com/api/v1/data/purchase', // Use LIVE endpoint if provided
+      'https://dev.bytewavegh.com/api/v1/purchaseBundle',
       {
-        networkReference: network,          // MTN / TELECEL / AT
-        orderReference: orderReference,     // Required
-        recipientPhone: formattedPhone,     // Required
-        capacityInGb: capacityInGb          // Must be NUMBER
+        network: network,              // mtn, telecel, at
+        reference: orderReference,     // unique reference
+        msisdn: formattedPhone,        // 0XXXXXXXXX
+        capacity: capacityInGb         // number only
       },
       {
         headers: {
